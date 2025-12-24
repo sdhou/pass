@@ -28,7 +28,7 @@ export const convertPdfToImages = async (file: File, onProgress?: (current: numb
 
     // 设置缩放比例，1.5 约等于 150 DPI (默认是 72 DPI, 1.5 * 72 = 108，我们可以调大一点保证清晰度)
     // 后端之前是用 dpi=150，这里我们可以用 scale = 150 / 72 ≈ 2.08，或者直接用 2.0 方便
-    const viewport = page.getViewport({ scale: 2.0 });
+    const viewport = page.getViewport({ scale: 2 });
 
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");

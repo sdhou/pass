@@ -54,6 +54,7 @@ function App() {
   const [images, setImages] = useState<PageImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progressText, setProgressText] = useState<string>("");
   const [isDragActive, setIsDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -64,14 +65,14 @@ function App() {
     }
 
     setLoading(true);
+    setProgressText("正在读取PDF...");
     setError(null);
     setImages([]);
 
     try {
       // 使用前端转换
       const result = await convertPdfToImages(file, (current, total) => {
-        // 这里将来可以加进度条，目前先不展示具体进度
-        console.log(`Processing page ${current}/${total}`);
+        setProgressText(`正在解析第 ${current} / ${total} 页...`);
       });
 
       setImages(result.map((img) => ({ ...img, rotation: 0, history: [] })));
@@ -80,6 +81,7 @@ function App() {
       setError(err instanceof Error ? err.message : "PDF处理失败，请检查文件是否损坏");
     } finally {
       setLoading(false);
+      setProgressText("");
     }
   };
 
@@ -153,12 +155,21 @@ function App() {
     if (images.length === 0) return;
 
     setLoading(true);
+    setProgressText("准备生成PDF...");
+
+    // Give UI a moment to update
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     try {
       const pdf = new jsPDF("p", "mm", "a4");
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
 
       for (let i = 0; i < images.length; i++) {
+        setProgressText(`正在处理第 ${i + 1} / ${images.length} 页...`);
+        // Yield to UI thread to allow render
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
         const img = images[i];
         if (i > 0) {
           pdf.addPage();
@@ -182,12 +193,15 @@ function App() {
         pdf.addImage(imageData, "PNG", x, y, w, h, undefined, "FAST");
       }
 
+      setProgressText("正在保存文件...");
+      await new Promise((resolve) => setTimeout(resolve, 50));
       pdf.save("converted.pdf");
     } catch (err) {
       console.error(err);
       setError("生成PDF失败");
     } finally {
       setLoading(false);
+      setProgressText("");
     }
   };
 
@@ -210,7 +224,7 @@ function App() {
           {loading ? (
             <div className="loading-container">
               <div className="spinner"></div>
-              <span className="loading-text">正在处理PDF文件...</span>
+              <span className="loading-text">{progressText || "正在处理..."}</span>
             </div>
           ) : (
             <>
@@ -230,7 +244,7 @@ function App() {
             <h2>转换结果</h2>
             <span className="page-count">共 {images.length} 页</span>
             <button className="download-btn" onClick={handleDownloadPDF} disabled={loading}>
-              {loading ? "处理中..." : "📥 下载 PDF"}
+              {loading ? progressText || "处理中..." : "📥 下载 PDF"}
             </button>
             <button className="clear-btn" onClick={handleClear}>
               清除结果
