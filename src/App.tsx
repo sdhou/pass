@@ -132,9 +132,27 @@ function App() {
     setImages((prev) => prev.map((img) => (img.page === page ? { ...img, rotation } : img)));
   };
 
-  // 裁剪时保存历史
+  // 裁剪时保存历史并更新尺寸
   const handleCrop = (page: number, newImageSrc: string) => {
-    setImages((prev) => prev.map((img) => (img.page === page ? { ...img, image: newImageSrc, rotation: 0, history: [...img.history, img.image] } : img)));
+    // 获取新图片的尺寸
+    const img = new Image();
+    img.onload = () => {
+      setImages((prev) =>
+        prev.map((imgData) =>
+          imgData.page === page
+            ? {
+                ...imgData,
+                image: newImageSrc,
+                width: img.width,
+                height: img.height,
+                rotation: 0,
+                history: [...imgData.history, imgData.image],
+              }
+            : imgData
+        )
+      );
+    };
+    img.src = newImageSrc;
   };
 
   // 撤销
