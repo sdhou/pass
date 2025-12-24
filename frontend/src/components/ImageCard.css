@@ -1,0 +1,102 @@
+.image-card {
+  background: var(--bg-card);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  transition: all 0.3s ease;
+}
+
+.image-card:hover {
+  box-shadow: var(--shadow-glow);
+  border-color: rgba(102, 126, 234, 0.5);
+}
+
+.image-wrapper {
+  position: relative;
+  background: #1a1a2e;
+  overflow: hidden;
+}
+
+.image-wrapper img {
+  width: 100%;
+  height: auto;
+  display: block;
+  transition: transform 0.3s ease;
+}
+
+.image-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.action-btn {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.action-btn:hover {
+  border-color: #667eea;
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.rotate-btn {
+  font-size: 1.2rem;
+  max-width: 50px;
+}
+
+.undo-btn {
+  flex: 2;
+}
+
+.undo-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.undo-btn:not(.disabled):hover {
+  border-color: #fbbf24;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+}
+
+.image-info {
+  padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border-color);
+}
+
+.page-number {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.image-size {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* ReactCrop customization */
+.ReactCrop {
+  width: 100%;
+}
+
+.ReactCrop__crop-selection {
+  border: 2px solid #667eea !important;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5) !important;
+}

@@ -1,20 +1,21 @@
 import type { ChangeEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import "./App.css";
-import ImageEditor from "./components/ImageEditor";
+import ImageCard from "./components/ImageCard";
 
 interface PageImage {
   page: number;
   image: string;
   width: number;
   height: number;
-  rotation?: number;
+  rotation: number;
+  history: string[]; // 历史记录
 }
 
 interface UploadResponse {
   success: boolean;
   total_pages: number;
-  images: PageImage[];
+  images: Omit<PageImage, "rotation" | "history">[];
 }
 
 function App() {
@@ -22,7 +23,6 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
-  const [editingImage, setEditingImage] = useState<PageImage | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUpload = async (file: File) => {
@@ -52,7 +52,7 @@ function App() {
       const data: UploadResponse = await response.json();
 
       if (data.success) {
-        setImages(data.images.map((img) => ({ ...img, rotation: 0 })));
+        setImages(data.images.map((img) => ({ ...img, rotation: 0, history: [] })));
       } else {
         throw new Error("处理失败");
       }
@@ -102,22 +102,27 @@ function App() {
     }
   };
 
-  // 快速旋转
-  const handleQuickRotate = (page: number, degrees: number) => {
-    setImages((prev) => prev.map((img) => (img.page === page ? { ...img, rotation: ((img.rotation || 0) + degrees) % 360 } : img)));
+  const handleRotate = (page: number, degrees: number) => {
+    setImages((prev) => prev.map((img) => (img.page === page ? { ...img, rotation: (img.rotation + degrees) % 360 } : img)));
   };
 
-  // 打开编辑器
-  const handleEdit = (img: PageImage) => {
-    setEditingImage(img);
+  // 裁剪时保存历史
+  const handleCrop = (page: number, newImageSrc: string) => {
+    setImages((prev) => prev.map((img) => (img.page === page ? { ...img, image: newImageSrc, rotation: 0, history: [...img.history, img.image] } : img)));
   };
 
-  // 保存编辑后的图片
-  const handleSaveEdit = (newImageSrc: string) => {
-    if (!editingImage) return;
-
-    setImages((prev) => prev.map((img) => (img.page === editingImage.page ? { ...img, image: newImageSrc, rotation: 0 } : img)));
-    setEditingImage(null);
+  // 撤销
+  const handleUndo = (page: number) => {
+    setImages((prev) =>
+      prev.map((img) => {
+        if (img.page === page && img.history.length > 0) {
+          const newHistory = [...img.history];
+          const previousImage = newHistory.pop()!;
+          return { ...img, image: previousImage, rotation: 0, history: newHistory };
+        }
+        return img;
+      })
+    );
   };
 
   return (
@@ -165,34 +170,22 @@ function App() {
 
           <div className="image-grid">
             {images.map((img) => (
-              <div key={img.page} className="image-card">
-                <div className="image-wrapper">
-                  <img src={img.image} alt={`第 ${img.page} 页`} style={{ transform: `rotate(${img.rotation || 0}deg)` }} />
-                </div>
-                <div className="image-actions">
-                  <button className="action-btn rotate-btn" onClick={() => handleQuickRotate(img.page, -90)} title="左转90°">
-                    ↺
-                  </button>
-                  <button className="action-btn rotate-btn" onClick={() => handleQuickRotate(img.page, 90)} title="右转90°">
-                    ↻
-                  </button>
-                  <button className="action-btn edit-btn" onClick={() => handleEdit(img)} title="编辑">
-                    ✂️ 编辑
-                  </button>
-                </div>
-                <div className="image-info">
-                  <span className="page-number">第 {img.page} 页</span>
-                  <span className="image-size">
-                    {img.width} × {img.height}
-                  </span>
-                </div>
-              </div>
+              <ImageCard
+                key={img.page}
+                page={img.page}
+                imageSrc={img.image}
+                width={img.width}
+                height={img.height}
+                rotation={img.rotation}
+                canUndo={img.history.length > 0}
+                onRotate={(degrees) => handleRotate(img.page, degrees)}
+                onCrop={(newSrc) => handleCrop(img.page, newSrc)}
+                onUndo={() => handleUndo(img.page)}
+              />
             ))}
           </div>
         </div>
       )}
-
-      {editingImage && <ImageEditor imageSrc={editingImage.image} pageNumber={editingImage.page} onSave={handleSaveEdit} onClose={() => setEditingImage(null)} />}
     </div>
   );
 }
