@@ -1,7 +1,43 @@
+import jsPDF from "jspdf";
 import type { ChangeEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import "./App.css";
 import ImageCard from "./components/ImageCard";
+
+const getRotatedImage = (src: string, rotation: number): Promise<string> => {
+  return new Promise((resolve) => {
+    if (rotation === 0) {
+      resolve(src);
+      return;
+    }
+    const image = new Image();
+    image.src = src;
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(src);
+        return;
+      }
+
+      const rad = (rotation * Math.PI) / 180;
+      const sin = Math.abs(Math.sin(rad));
+      const cos = Math.abs(Math.cos(rad));
+      const w = image.width;
+      const h = image.height;
+      const newWidth = w * cos + h * sin;
+      const newHeight = w * sin + h * cos;
+
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+
+      ctx.translate(newWidth / 2, newHeight / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(image, -w / 2, -h / 2);
+      resolve(canvas.toDataURL("image/png"));
+    };
+  });
+};
 
 interface PageImage {
   page: number;
@@ -129,6 +165,48 @@ function App() {
     );
   };
 
+  const handleDownloadPDF = async () => {
+    if (images.length === 0) return;
+
+    setLoading(true);
+    try {
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        if (i > 0) {
+          pdf.addPage();
+        }
+
+        const imageData = await getRotatedImage(img.image, img.rotation);
+        const imgProps = pdf.getImageProperties(imageData);
+        const ratio = imgProps.width / imgProps.height;
+
+        let w = pageWidth;
+        let h = w / ratio;
+
+        if (h > pageHeight) {
+          h = pageHeight;
+          w = h * ratio;
+        }
+
+        const x = (pageWidth - w) / 2;
+        const y = (pageHeight - h) / 2;
+
+        pdf.addImage(imageData, "PNG", x, y, w, h, undefined, "FAST");
+      }
+
+      pdf.save("converted.pdf");
+    } catch (err) {
+      console.error(err);
+      setError("生成PDF失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="app">
       <header className="header">
@@ -167,6 +245,9 @@ function App() {
           <div className="results-header">
             <h2>转换结果</h2>
             <span className="page-count">共 {images.length} 页</span>
+            <button className="download-btn" onClick={handleDownloadPDF} disabled={loading}>
+              {loading ? "处理中..." : "📥 下载 PDF"}
+            </button>
             <button className="clear-btn" onClick={handleClear}>
               清除结果
             </button>
