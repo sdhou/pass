@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@imgly/background-removal": "^1.7.0",
     "jspdf": "^3.0.4",
     "pdfjs-dist": "^5.4.449",
     "react": "^19.2.0",

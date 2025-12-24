@@ -1,8 +1,9 @@
 import jsPDF from "jspdf";
 import type { ChangeEvent, DragEvent } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import ImageCard from "./components/ImageCard";
+import { getApiKey, smartCropPassport } from "./utils/passport-crop";
 import { convertPdfToImages } from "./utils/pdf-converter";
 
 const getRotatedImage = (src: string, rotation: number): Promise<string> => {
@@ -46,17 +47,80 @@ interface PageImage {
   width: number;
   height: number;
   rotation: number;
-  history: string[]; // 历史记录
+  history: string[];
 }
 
 function App() {
-  // ... rest of the component
   const [images, setImages] = useState<PageImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressText, setProgressText] = useState<string>("");
   const [isDragActive, setIsDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 智能裁剪状态
+  const [isAutoSmartCropping, setIsAutoSmartCropping] = useState(false);
+  const [smartCropProgress, setSmartCropProgress] = useState({ current: 0, total: 0 });
+  const [currentCroppingPage, setCurrentCroppingPage] = useState<number | null>(null);
+
+  // 返回顶部按钮状态
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  // 监听滚动事件
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 300);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // 自动智能裁剪所有图片
+  const autoSmartCropAll = async (imageList: PageImage[]) => {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      return; // 用户取消了输入 API Key
+    }
+
+    setIsAutoSmartCropping(true);
+    setSmartCropProgress({ current: 0, total: imageList.length });
+
+    const updatedImages = [...imageList];
+
+    for (let i = 0; i < imageList.length; i++) {
+      setSmartCropProgress({ current: i + 1, total: imageList.length });
+      setCurrentCroppingPage(imageList[i].page);
+
+      try {
+        const newImage = await smartCropPassport(imageList[i].image);
+
+        // 获取新图片尺寸
+        const imgSize = await new Promise<{ width: number; height: number }>((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve({ width: img.width, height: img.height });
+          img.src = newImage;
+        });
+
+        updatedImages[i] = {
+          ...updatedImages[i],
+          image: newImage,
+          width: imgSize.width,
+          height: imgSize.height,
+          history: [...updatedImages[i].history, imageList[i].image],
+        };
+
+        // 实时更新状态
+        setImages([...updatedImages]);
+      } catch (err) {
+        console.error(`智能裁剪第 ${i + 1} 页失败:`, err);
+        // 继续处理下一张
+      }
+    }
+
+    setIsAutoSmartCropping(false);
+    setCurrentCroppingPage(null);
+    setSmartCropProgress({ current: 0, total: 0 });
+  };
 
   const handleUpload = async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -70,16 +134,20 @@ function App() {
     setImages([]);
 
     try {
-      // 使用前端转换
       const result = await convertPdfToImages(file, (current, total) => {
         setProgressText(`正在解析第 ${current} / ${total} 页...`);
       });
 
-      setImages(result.map((img) => ({ ...img, rotation: 0, history: [] })));
+      const initialImages = result.map((img) => ({ ...img, rotation: 0, history: [] }));
+      setImages(initialImages);
+      setLoading(false);
+      setProgressText("");
+
+      // PDF 解析完成后自动开始智能裁剪
+      autoSmartCropAll(initialImages);
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "PDF处理失败，请检查文件是否损坏");
-    } finally {
       setLoading(false);
       setProgressText("");
     }
@@ -132,9 +200,7 @@ function App() {
     setImages((prev) => prev.map((img) => (img.page === page ? { ...img, rotation } : img)));
   };
 
-  // 裁剪时保存历史并更新尺寸
   const handleCrop = (page: number, newImageSrc: string) => {
-    // 获取新图片的尺寸
     const img = new Image();
     img.onload = () => {
       setImages((prev) =>
@@ -155,7 +221,6 @@ function App() {
     img.src = newImageSrc;
   };
 
-  // 撤销
   const handleUndo = (page: number) => {
     setImages((prev) =>
       prev.map((img) => {
@@ -175,7 +240,6 @@ function App() {
     setLoading(true);
     setProgressText("准备生成PDF...");
 
-    // Give UI a moment to update
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     try {
@@ -185,7 +249,6 @@ function App() {
 
       for (let i = 0; i < images.length; i++) {
         setProgressText(`正在处理第 ${i + 1} / ${images.length} 页...`);
-        // Yield to UI thread to allow render
         await new Promise((resolve) => setTimeout(resolve, 0));
 
         const img = images[i];
@@ -223,6 +286,8 @@ function App() {
     }
   };
 
+  const isBusy = loading || isAutoSmartCropping;
+
   return (
     <div className="app">
       <header className="header">
@@ -232,7 +297,7 @@ function App() {
 
       <div className="upload-area">
         <div
-          className={`upload-zone ${isDragActive ? "drag-active" : ""} ${loading ? "uploading" : ""}`}
+          className={`upload-zone ${isDragActive ? "drag-active" : ""} ${isBusy ? "uploading" : ""}`}
           onClick={handleClick}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -243,6 +308,16 @@ function App() {
             <div className="loading-container">
               <div className="spinner"></div>
               <span className="loading-text">{progressText || "正在处理..."}</span>
+            </div>
+          ) : isAutoSmartCropping ? (
+            <div className="loading-container">
+              <div className="spinner"></div>
+              <span className="loading-text">
+                ✂️ 智能裁剪中... {smartCropProgress.current} / {smartCropProgress.total}
+              </span>
+              <div className="smart-crop-global-progress">
+                <div className="smart-crop-global-progress-fill" style={{ width: `${(smartCropProgress.current / smartCropProgress.total) * 100}%` }} />
+              </div>
             </div>
           ) : (
             <>
@@ -261,8 +336,8 @@ function App() {
           <div className="results-header">
             <h2>转换结果</h2>
             <span className="page-count">共 {images.length} 页</span>
-            <button className="download-btn" onClick={handleDownloadPDF} disabled={loading}>
-              {loading ? progressText || "处理中..." : "📥 下载 PDF"}
+            <button className="download-btn" onClick={handleDownloadPDF} disabled={isBusy}>
+              {isBusy ? (isAutoSmartCropping ? "裁剪中..." : progressText || "处理中...") : "📥 下载 PDF"}
             </button>
             <button className="clear-btn" onClick={handleClear}>
               清除结果
@@ -279,6 +354,7 @@ function App() {
                 height={img.height}
                 rotation={img.rotation}
                 canUndo={img.history.length > 0}
+                isSmartCropping={currentCroppingPage === img.page}
                 onRotate={(degrees) => handleRotate(img.page, degrees)}
                 onSetRotation={(rotation) => handleSetRotation(img.page, rotation)}
                 onCrop={(newSrc) => handleCrop(img.page, newSrc)}
@@ -288,6 +364,11 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* 返回顶部按钮 */}
+      <button className={`back-to-top ${showBackToTop ? "visible" : ""}`} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} title="返回顶部">
+        ↑
+      </button>
     </div>
   );
 }
