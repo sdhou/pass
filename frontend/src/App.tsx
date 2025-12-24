@@ -106,6 +106,10 @@ function App() {
     setImages((prev) => prev.map((img) => (img.page === page ? { ...img, rotation: (img.rotation + degrees) % 360 } : img)));
   };
 
+  const handleSetRotation = (page: number, rotation: number) => {
+    setImages((prev) => prev.map((img) => (img.page === page ? { ...img, rotation } : img)));
+  };
+
   // 裁剪时保存历史
   const handleCrop = (page: number, newImageSrc: string) => {
     setImages((prev) => prev.map((img) => (img.page === page ? { ...img, image: newImageSrc, rotation: 0, history: [...img.history, img.image] } : img)));
@@ -179,6 +183,7 @@ function App() {
                 rotation={img.rotation}
                 canUndo={img.history.length > 0}
                 onRotate={(degrees) => handleRotate(img.page, degrees)}
+                onSetRotation={(rotation) => handleSetRotation(img.page, rotation)}
                 onCrop={(newSrc) => handleCrop(img.page, newSrc)}
                 onUndo={() => handleUndo(img.page)}
               />

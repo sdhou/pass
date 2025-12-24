@@ -12,11 +12,12 @@ interface ImageCardProps {
   rotation: number;
   canUndo: boolean;
   onRotate: (degrees: number) => void;
+  onSetRotation: (rotation: number) => void;
   onCrop: (newImageSrc: string) => void;
   onUndo: () => void;
 }
 
-function ImageCard({ page, imageSrc, width, height, rotation, canUndo, onRotate, onCrop, onUndo }: ImageCardProps) {
+function ImageCard({ page, imageSrc, width, height, rotation, canUndo, onRotate, onSetRotation, onCrop, onUndo }: ImageCardProps) {
   const [crop, setCrop] = useState<Crop>();
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -73,15 +74,49 @@ function ImageCard({ page, imageSrc, width, height, rotation, canUndo, onRotate,
       </div>
 
       <div className="image-actions">
-        <button className="action-btn rotate-btn" onClick={() => onRotate(-90)} title="左转90°">
-          ↺
-        </button>
-        <button className="action-btn rotate-btn" onClick={() => onRotate(90)} title="右转90°">
-          ↻
-        </button>
-        <button className={`action-btn undo-btn ${!canUndo ? "disabled" : ""}`} onClick={onUndo} disabled={!canUndo} title="撤销">
-          ⟲ 撤销
-        </button>
+        <div className="rotation-control">
+          <button className="slider-btn" onClick={() => onSetRotation((rotation - 1 + 360) % 360)} title="-1°">
+            -
+          </button>
+          <input
+            type="range"
+            min="-180"
+            max="180"
+            value={rotation > 180 ? rotation - 360 : rotation}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              onSetRotation(val >= 0 ? val : 360 + val);
+            }}
+            className="rotation-slider"
+          />
+          <button className="slider-btn" onClick={() => onSetRotation((rotation + 1) % 360)} title="+1°">
+            +
+          </button>
+          <input
+            type="number"
+            value={Math.round(rotation > 180 ? rotation - 360 : rotation)}
+            onChange={(e) => {
+              let val = parseInt(e.target.value) || 0;
+              // Limit input range if needed, though visual feedback is enough
+              if (val > 180) val = 180;
+              if (val < -180) val = -180;
+              onSetRotation(val >= 0 ? val : 360 + val);
+            }}
+            className="rotation-input"
+          />
+          <span className="unit">°</span>
+        </div>
+        <div className="btn-group">
+          <button className="action-btn rotate-btn" onClick={() => onRotate(-90)} title="左转90°">
+            ↺
+          </button>
+          <button className="action-btn rotate-btn" onClick={() => onRotate(90)} title="右转90°">
+            ↻
+          </button>
+          <button className={`action-btn undo-btn ${!canUndo ? "disabled" : ""}`} onClick={onUndo} disabled={!canUndo} title="撤销">
+            ⟲ 撤销
+          </button>
+        </div>
       </div>
 
       <div className="image-info">

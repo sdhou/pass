@@ -26,9 +26,105 @@
 
 .image-actions {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1rem;
   border-top: 1px solid var(--border-color);
+}
+
+.rotation-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.slider-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0;
+  transition: all 0.2s;
+}
+
+.slider-btn:hover {
+  background: rgba(102, 126, 234, 0.1);
+  color: #667eea;
+  border-color: #667eea;
+}
+
+.rotation-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+}
+
+.rotation-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #667eea;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.rotation-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.rotation-input {
+  width: 50px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  text-align: right;
+  padding: 2px 4px;
+  -moz-appearance: textfield;
+  transition: all 0.2s;
+}
+
+.rotation-input:hover {
+  border-color: #667eea;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.rotation-input:focus {
+  outline: none;
+  border-color: #667eea;
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.rotation-input::-webkit-outer-spin-button,
+.rotation-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.unit {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-left: 4px;
+  padding-right: 4px;
+}
+
+.btn-group {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .action-btn {
