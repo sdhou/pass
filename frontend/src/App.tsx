@@ -3,6 +3,7 @@ import type { ChangeEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import "./App.css";
 import ImageCard from "./components/ImageCard";
+import { convertPdfToImages } from "./utils/pdf-converter";
 
 const getRotatedImage = (src: string, rotation: number): Promise<string> => {
   return new Promise((resolve) => {
@@ -48,13 +49,8 @@ interface PageImage {
   history: string[]; // 历史记录
 }
 
-interface UploadResponse {
-  success: boolean;
-  total_pages: number;
-  images: Omit<PageImage, "rotation" | "history">[];
-}
-
 function App() {
+  // ... rest of the component
   const [images, setImages] = useState<PageImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,29 +67,17 @@ function App() {
     setError(null);
     setImages([]);
 
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
+      // 使用前端转换
+      const result = await convertPdfToImages(file, (current, total) => {
+        // 这里将来可以加进度条，目前先不展示具体进度
+        console.log(`Processing page ${current}/${total}`);
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "上传失败");
-      }
-
-      const data: UploadResponse = await response.json();
-
-      if (data.success) {
-        setImages(data.images.map((img) => ({ ...img, rotation: 0, history: [] })));
-      } else {
-        throw new Error("处理失败");
-      }
+      setImages(result.map((img) => ({ ...img, rotation: 0, history: [] })));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "上传过程中发生错误");
+      console.error(err);
+      setError(err instanceof Error ? err.message : "PDF处理失败，请检查文件是否损坏");
     } finally {
       setLoading(false);
     }
