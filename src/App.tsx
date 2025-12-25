@@ -75,7 +75,7 @@ function App() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // 自动智能裁剪所有图片
+  // 自动智能裁剪所有图片（并发处理，按批次顺序更新）
   const autoSmartCropAll = async (imageList: PageImage[]) => {
     const apiKey = getApiKey();
     if (!apiKey) {
@@ -86,13 +86,12 @@ function App() {
     setSmartCropProgress({ current: 0, total: imageList.length });
 
     const updatedImages = [...imageList];
+    const concurrencyLimit = 5; // 同时处理5张图片
 
-    for (let i = 0; i < imageList.length; i++) {
-      setSmartCropProgress({ current: i + 1, total: imageList.length });
-      setCurrentCroppingPage(imageList[i].page);
-
+    // 处理单张图片的函数
+    const processImage = async (index: number) => {
       try {
-        const newImage = await smartCropPassport(imageList[i].image);
+        const newImage = await smartCropPassport(imageList[index].image);
 
         // 获取新图片尺寸
         const imgSize = await new Promise<{ width: number; height: number }>((resolve) => {
@@ -101,20 +100,29 @@ function App() {
           img.src = newImage;
         });
 
-        updatedImages[i] = {
-          ...updatedImages[i],
+        updatedImages[index] = {
+          ...updatedImages[index],
           image: newImage,
           width: imgSize.width,
           height: imgSize.height,
-          history: [...updatedImages[i].history, imageList[i].image],
+          history: [...updatedImages[index].history, imageList[index].image],
         };
-
-        // 实时更新状态
-        setImages([...updatedImages]);
       } catch (err) {
-        console.error(`智能裁剪第 ${i + 1} 页失败:`, err);
-        // 继续处理下一张
+        console.error(`智能裁剪第 ${index + 1} 页失败:`, err);
+        // 继续处理，不中断
       }
+    };
+
+    // 分批并发处理，每批完成后再更新UI
+    for (let i = 0; i < imageList.length; i += concurrencyLimit) {
+      const batch = imageList.slice(i, i + concurrencyLimit);
+      const batchPromises = batch.map((_, batchIndex) => processImage(i + batchIndex));
+      await Promise.all(batchPromises);
+
+      // 这批完成后统一更新进度和状态
+      const completedCount = Math.min(i + concurrencyLimit, imageList.length);
+      setSmartCropProgress({ current: completedCount, total: imageList.length });
+      setImages([...updatedImages]);
     }
 
     setIsAutoSmartCropping(false);
@@ -144,7 +152,7 @@ function App() {
       setProgressText("");
 
       // PDF 解析完成后自动开始智能裁剪
-      autoSmartCropAll(initialImages);
+      // autoSmartCropAll(initialImages);
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "PDF处理失败，请检查文件是否损坏");
@@ -192,8 +200,39 @@ function App() {
     }
   };
 
-  const handleRotate = (page: number, degrees: number) => {
-    setImages((prev) => prev.map((img) => (img.page === page ? { ...img, rotation: (img.rotation + degrees) % 360 } : img)));
+  const handleRotate = async (page: number, degrees: number) => {
+    // 当旋转角度是90°的整数倍时，真正旋转图片数据
+    if (degrees % 90 === 0 && degrees !== 0) {
+      const imgData = images.find((img) => img.page === page);
+      if (!imgData) return;
+
+      try {
+        const rotatedImage = await getRotatedImage(imgData.image, degrees);
+        const img = new Image();
+        img.onload = () => {
+          setImages((prev) =>
+            prev.map((item) =>
+              item.page === page
+                ? {
+                    ...item,
+                    image: rotatedImage,
+                    width: img.width,
+                    height: img.height,
+                    rotation: 0, // 重置CSS旋转因为图片已经物理旋转了
+                    history: [...item.history, item.image],
+                  }
+                : item
+            )
+          );
+        };
+        img.src = rotatedImage;
+      } catch (err) {
+        console.error("旋转图片失败:", err);
+      }
+    } else {
+      // 其他角度用CSS旋转
+      setImages((prev) => prev.map((img) => (img.page === page ? { ...img, rotation: (img.rotation + degrees) % 360 } : img)));
+    }
   };
 
   const handleSetRotation = (page: number, rotation: number) => {
@@ -291,8 +330,8 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>📄 PDF 转图片</h1>
-        <p>上传PDF文件，将每一页转换为高清图片</p>
+        <h1>PDF 智能处理工具</h1>
+        <p>上传PDF文件，智能裁剪护照并导出高清图片</p>
       </header>
 
       <div className="upload-area">
@@ -322,8 +361,8 @@ function App() {
           ) : (
             <>
               <div className="upload-icon">📁</div>
-              <h3>点击或拖拽上传PDF文件</h3>
-              <p>支持 .pdf 格式</p>
+              <h3>拖拽或点击上传 PDF 文件</h3>
+              <p>支持多页PDF文件，自动解析每一页</p>
             </>
           )}
         </div>
@@ -336,6 +375,9 @@ function App() {
           <div className="results-header">
             <h2>转换结果</h2>
             <span className="page-count">共 {images.length} 页</span>
+            <button className="smart-crop-all-btn" onClick={() => autoSmartCropAll(images)} disabled={isBusy}>
+              {isAutoSmartCropping ? `裁剪中 ${smartCropProgress.current}/${smartCropProgress.total}` : "✂️ 智能裁剪全部"}
+            </button>
             <button className="download-btn" onClick={handleDownloadPDF} disabled={isBusy}>
               {isBusy ? (isAutoSmartCropping ? "裁剪中..." : progressText || "处理中...") : "📥 下载 PDF"}
             </button>
@@ -367,7 +409,7 @@ function App() {
 
       {/* 返回顶部按钮 */}
       <button className={`back-to-top ${showBackToTop ? "visible" : ""}`} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} title="返回顶部">
-        ↑
+        ⬆
       </button>
     </div>
   );

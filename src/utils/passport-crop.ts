@@ -145,69 +145,149 @@ const detectPassportBoundary = async (imageBase64: string, apiKey: string): Prom
 };
 
 /**
- * 根据四角坐标裁剪图片
- * 支持比例坐标 (0-1) 和像素坐标，自动判断并增加安全边距
+ * 计算护照底边的倾斜角度（弧度）
+ * 使用底边两点计算角度，使MRZ码水平对齐
+ */
+const calculateRotationAngle = (bottomLeft: [number, number], bottomRight: [number, number]): number => {
+  const deltaX = bottomRight[0] - bottomLeft[0];
+  const deltaY = bottomRight[1] - bottomLeft[1];
+  // 计算底边相对于水平线的角度
+  const angle = Math.atan2(deltaY, deltaX);
+  console.log("计算的旋转角度:", (angle * 180) / Math.PI, "度");
+  return angle;
+};
+
+/**
+ * 根据四角坐标裁剪图片并校正角度
+ * 策略：先旋转整张图片使护照水平，然后裁剪护照区域
  */
 const cropByCorners = async (imageBase64: string, corners: PassportCorners): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("无法创建 canvas context"));
+      // 第一步：将坐标转换为像素坐标
+      let topLeft = [...corners.topLeft] as [number, number];
+      let topRight = [...corners.topRight] as [number, number];
+      let bottomLeft = [...corners.bottomLeft] as [number, number];
+      let bottomRight = [...corners.bottomRight] as [number, number];
+
+      const maxCoord = Math.max(...topLeft, ...topRight, ...bottomLeft, ...bottomRight);
+      const isRatioCoords = maxCoord <= 1;
+
+      if (isRatioCoords) {
+        console.log("检测到比例坐标，转换为像素坐标");
+        topLeft = [topLeft[0] * img.width, topLeft[1] * img.height];
+        topRight = [topRight[0] * img.width, topRight[1] * img.height];
+        bottomLeft = [bottomLeft[0] * img.width, bottomLeft[1] * img.height];
+        bottomRight = [bottomRight[0] * img.width, bottomRight[1] * img.height];
+      }
+
+      // 第二步：计算旋转角度（基于底边，校正护照倾斜）
+      // 只进行倾斜校正，保持护照原有方向（竖直的护照保持竖直）
+      const rotationAngle = calculateRotationAngle(bottomLeft, bottomRight);
+      console.log("校正旋转角度:", (rotationAngle * 180) / Math.PI, "度");
+
+      // 第三步：创建一个足够大的临时canvas，用于旋转整张原图
+      // 旋转后图片可能会变大，需要计算对角线长度作为新尺寸
+      const diagonal = Math.hypot(img.width, img.height);
+      const tempCanvas = document.createElement("canvas");
+      tempCanvas.width = Math.ceil(diagonal);
+      tempCanvas.height = Math.ceil(diagonal);
+      const tempCtx = tempCanvas.getContext("2d");
+      if (!tempCtx) {
+        reject(new Error("无法创建临时 canvas context"));
         return;
       }
 
-      // 收集所有坐标值
-      let allX = [corners.topLeft[0], corners.topRight[0], corners.bottomLeft[0], corners.bottomRight[0]];
-      let allY = [corners.topLeft[1], corners.topRight[1], corners.bottomLeft[1], corners.bottomRight[1]];
+      // 填充白色背景
+      tempCtx.fillStyle = "#FFFFFF";
+      tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
 
-      // 判断是比例坐标还是像素坐标
-      const maxX = Math.max(...allX);
-      const maxY = Math.max(...allY);
-      const isRatioCoords = maxX <= 1 && maxY <= 1;
+      // 将原点移动到临时canvas中心
+      const tempCenterX = tempCanvas.width / 2;
+      const tempCenterY = tempCanvas.height / 2;
+      tempCtx.translate(tempCenterX, tempCenterY);
+      // 旋转（逆向旋转来校正倾斜）
+      tempCtx.rotate(-rotationAngle);
+      // 绘制原图（原图中心对齐到临时canvas中心）
+      tempCtx.drawImage(img, -img.width / 2, -img.height / 2);
 
-      // 如果是比例坐标，转换为像素坐标
-      if (isRatioCoords) {
-        console.log("检测到比例坐标，转换为像素坐标");
-        allX = allX.map((x) => x * img.width);
-        allY = allY.map((y) => y * img.height);
-      }
+      // 第四步：计算旋转后的护照四角坐标
+      // 需要将原始坐标先相对于原图中心，然后旋转，再加上临时canvas中心偏移
+      const rotatePointAroundOrigin = (point: [number, number], imgCenter: [number, number], angle: number, newCenter: [number, number]): [number, number] => {
+        // 将坐标转换为相对于原图中心
+        const relX = point[0] - imgCenter[0];
+        const relY = point[1] - imgCenter[1];
+        // 旋转
+        const cos = Math.cos(-angle);
+        const sin = Math.sin(-angle);
+        const rotatedX = relX * cos - relY * sin;
+        const rotatedY = relX * sin + relY * cos;
+        // 转换为相对于新canvas中心的坐标
+        return [newCenter[0] + rotatedX, newCenter[1] + rotatedY];
+      };
 
-      // 增加较大的安全边距（图片尺寸的 2%，确保不会截掉任何内容）
+      const imgCenterX = img.width / 2;
+      const imgCenterY = img.height / 2;
+
+      const rotatedTopLeft = rotatePointAroundOrigin(topLeft, [imgCenterX, imgCenterY], rotationAngle, [tempCenterX, tempCenterY]);
+      const rotatedTopRight = rotatePointAroundOrigin(topRight, [imgCenterX, imgCenterY], rotationAngle, [tempCenterX, tempCenterY]);
+      const rotatedBottomLeft = rotatePointAroundOrigin(bottomLeft, [imgCenterX, imgCenterY], rotationAngle, [tempCenterX, tempCenterY]);
+      const rotatedBottomRight = rotatePointAroundOrigin(bottomRight, [imgCenterX, imgCenterY], rotationAngle, [tempCenterX, tempCenterY]);
+
+      console.log("旋转后的四角坐标:", { rotatedTopLeft, rotatedTopRight, rotatedBottomLeft, rotatedBottomRight });
+
+      // 第五步：计算旋转后护照的边界框（用于裁剪）
+      const allRotatedX = [rotatedTopLeft[0], rotatedTopRight[0], rotatedBottomLeft[0], rotatedBottomRight[0]];
+      const allRotatedY = [rotatedTopLeft[1], rotatedTopRight[1], rotatedBottomLeft[1], rotatedBottomRight[1]];
+
       const paddingX = img.width * 0.02;
       const paddingY = img.height * 0.02;
 
-      const minX = Math.max(0, Math.min(...allX) - paddingX);
-      const cropMaxX = Math.min(img.width, Math.max(...allX) + paddingX);
-      const minY = Math.max(0, Math.min(...allY) - paddingY);
-      const cropMaxY = Math.min(img.height, Math.max(...allY) + paddingY);
+      const cropMinX = Math.max(0, Math.min(...allRotatedX) - paddingX);
+      const cropMaxX = Math.min(tempCanvas.width, Math.max(...allRotatedX) + paddingX);
+      const cropMinY = Math.max(0, Math.min(...allRotatedY) - paddingY);
+      const cropMaxY = Math.min(tempCanvas.height, Math.max(...allRotatedY) + paddingY);
 
-      const width = cropMaxX - minX;
-      const height = cropMaxY - minY;
+      const cropWidth = cropMaxX - cropMinX;
+      const cropHeight = cropMaxY - cropMinY;
 
-      if (width <= 0 || height <= 0) {
+      if (cropWidth <= 0 || cropHeight <= 0) {
         reject(new Error("裁剪区域无效"));
         return;
       }
 
-      canvas.width = width;
-      canvas.height = height;
+      // 第六步：从旋转后的临时canvas中裁剪护照区域
+      const finalCanvas = document.createElement("canvas");
+      finalCanvas.width = Math.round(cropWidth);
+      finalCanvas.height = Math.round(cropHeight);
+      const finalCtx = finalCanvas.getContext("2d");
+      if (!finalCtx) {
+        reject(new Error("无法创建最终 canvas context"));
+        return;
+      }
 
-      // 裁剪图片
-      ctx.drawImage(img, minX, minY, width, height, 0, 0, width, height);
+      finalCtx.drawImage(
+        tempCanvas,
+        cropMinX,
+        cropMinY,
+        cropWidth,
+        cropHeight, // 源区域
+        0,
+        0,
+        cropWidth,
+        cropHeight // 目标区域
+      );
 
-      console.log("裁剪完成:", {
+      console.log("裁剪并旋转完成:", {
         isRatioCoords,
-        minX: Math.round(minX),
-        minY: Math.round(minY),
-        width: Math.round(width),
-        height: Math.round(height),
-        imgWidth: img.width,
-        imgHeight: img.height,
+        rotationAngleDeg: (rotationAngle * 180) / Math.PI,
+        cropArea: { x: Math.round(cropMinX), y: Math.round(cropMinY), w: Math.round(cropWidth), h: Math.round(cropHeight) },
+        tempCanvasSize: { w: tempCanvas.width, h: tempCanvas.height },
+        imgSize: { w: img.width, h: img.height },
       });
-      resolve(canvas.toDataURL("image/png"));
+
+      resolve(finalCanvas.toDataURL("image/png"));
     };
     img.onerror = () => reject(new Error("无法加载图片"));
     img.src = imageBase64;

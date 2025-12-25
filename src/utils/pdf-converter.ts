@@ -41,11 +41,12 @@ export const convertPdfToImages = async (file: File, onProgress?: (current: numb
     canvas.width = viewport.width;
 
     const renderContext = {
+      canvas: null,
       canvasContext: context,
       viewport: viewport,
     };
 
-    await page.render(renderContext as any).promise;
+    await page.render(renderContext).promise;
 
     const base64 = canvas.toDataURL("image/png");
 

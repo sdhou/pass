@@ -138,10 +138,8 @@ function ImageCard({ page, imageSrc, width, height, rotation, canUndo, isSmartCr
           <button className="action-btn rotate-btn" onClick={() => onRotate(90)} title="右转90°">
             ↻
           </button>
-        </div>
-        <div className="btn-group">
           <button className={`action-btn smart-crop-btn ${isBusy ? "loading" : ""}`} onClick={handleSmartCrop} disabled={isBusy} title="智能裁剪护照">
-            {isBusy ? "⏳ 识别中..." : "✂️ 智能裁剪"}
+            {isSmartCropping ? "⏳ 识别中..." : "✂️ 智能裁剪"}
           </button>
           <button className={`action-btn undo-btn ${!canUndo ? "disabled" : ""}`} onClick={onUndo} disabled={!canUndo} title="撤销">
             ⟲ 撤销
