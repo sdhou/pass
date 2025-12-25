@@ -15,7 +15,7 @@
 }
 
 .header::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -1.5rem;
   left: 50%;
@@ -55,6 +55,13 @@
 
 .upload-zone {
   position: relative;
+  width: 100%;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  -webkit-appearance: none;
+  appearance: none;
   border: 2px dashed var(--border-color);
   border-radius: var(--radius-2xl);
   padding: 4rem 2.5rem;
@@ -68,7 +75,7 @@
 
 /* 上传区域光晕效果 */
 .upload-zone::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
@@ -89,9 +96,7 @@
 .upload-zone.drag-active {
   border-color: rgba(99, 102, 241, 0.6);
   background: var(--bg-card-hover);
-  box-shadow: 
-    var(--shadow-glow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-glow), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   transform: translateY(-4px);
 }
 
@@ -108,7 +113,8 @@
 }
 
 @keyframes floatIcon {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateY(0);
   }
   50% {
@@ -196,7 +202,7 @@
 
 /* ===== 错误信息 ===== */
 .error-message {
-  background: rgba(244, 63, 94, 0.1);
+  background: linear-gradient(rgba(244, 63, 94, 0.1), rgba(244, 63, 94, 0.1));
   border: 1px solid rgba(244, 63, 94, 0.3);
   border-radius: var(--radius-lg);
   padding: 1rem 1.5rem;
@@ -250,7 +256,7 @@
 }
 
 .results-header h2::before {
-  content: '✨';
+  content: "✨";
 }
 
 .page-count {
@@ -349,9 +355,7 @@
   visibility: hidden;
   transform: translateY(20px) scale(0.9);
   transition: all 0.4s var(--ease-out-back);
-  box-shadow: 
-    0 4px 20px rgba(99, 102, 241, 0.4),
-    0 0 0 4px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4), 0 0 0 4px rgba(99, 102, 241, 0.1);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -367,9 +371,7 @@
 
 .back-to-top:hover {
   transform: translateY(-4px) scale(1.05);
-  box-shadow: 
-    0 8px 30px rgba(99, 102, 241, 0.5),
-    0 0 0 6px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.5), 0 0 0 6px rgba(99, 102, 241, 0.15);
 }
 
 .back-to-top:active {

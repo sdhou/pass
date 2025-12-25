@@ -6,6 +6,14 @@ import ImageCard from "./components/ImageCard";
 import { getApiKey, smartCropPassport } from "./utils/passport-crop";
 import { convertPdfToImages } from "./utils/pdf-converter";
 
+const getImageSize = (src: string): Promise<{ width: number; height: number }> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.width, height: img.height });
+    img.src = src;
+  });
+};
+
 const getRotatedImage = (src: string, rotation: number): Promise<string> => {
   return new Promise((resolve) => {
     if (rotation === 0) {
@@ -94,11 +102,7 @@ function App() {
         const newImage = await smartCropPassport(imageList[index].image);
 
         // 获取新图片尺寸
-        const imgSize = await new Promise<{ width: number; height: number }>((resolve) => {
-          const img = new Image();
-          img.onload = () => resolve({ width: img.width, height: img.height });
-          img.src = newImage;
-        });
+        const imgSize = await getImageSize(newImage);
 
         updatedImages[index] = {
           ...updatedImages[index],
@@ -168,17 +172,17 @@ function App() {
     }
   };
 
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragOver = (e: DragEvent<HTMLButtonElement>) => {
     e.preventDefault();
     setIsDragActive(true);
   };
 
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = (e: DragEvent<HTMLButtonElement>) => {
     e.preventDefault();
     setIsDragActive(false);
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: DragEvent<HTMLButtonElement>) => {
     e.preventDefault();
     setIsDragActive(false);
 
@@ -208,24 +212,23 @@ function App() {
 
       try {
         const rotatedImage = await getRotatedImage(imgData.image, degrees);
-        const img = new Image();
-        img.onload = () => {
-          setImages((prev) =>
-            prev.map((item) =>
-              item.page === page
-                ? {
-                    ...item,
-                    image: rotatedImage,
-                    width: img.width,
-                    height: img.height,
-                    rotation: 0, // 重置CSS旋转因为图片已经物理旋转了
-                    history: [...item.history, item.image],
-                  }
-                : item
-            )
-          );
-        };
-        img.src = rotatedImage;
+        const { width, height } = await getImageSize(rotatedImage);
+
+        setImages((prev) =>
+          prev.map((item) =>
+            item.page === page
+              ? {
+                  ...item,
+                  image: rotatedImage,
+                  width,
+                  height,
+                  rotation: 0, // 重置CSS旋转因为图片已经物理旋转了
+                  history: [...item.history, item.image],
+                }
+              : item
+          )
+        );
+        // img.src assignment removed as getImageSize handles loading
       } catch (err) {
         console.error("旋转图片失败:", err);
       }
@@ -239,25 +242,22 @@ function App() {
     setImages((prev) => prev.map((img) => (img.page === page ? { ...img, rotation } : img)));
   };
 
-  const handleCrop = (page: number, newImageSrc: string) => {
-    const img = new Image();
-    img.onload = () => {
-      setImages((prev) =>
-        prev.map((imgData) =>
-          imgData.page === page
-            ? {
-                ...imgData,
-                image: newImageSrc,
-                width: img.width,
-                height: img.height,
-                rotation: 0,
-                history: [...imgData.history, imgData.image],
-              }
-            : imgData
-        )
-      );
-    };
-    img.src = newImageSrc;
+  const handleCrop = async (page: number, newImageSrc: string) => {
+    const { width, height } = await getImageSize(newImageSrc);
+    setImages((prev) =>
+      prev.map((imgData) =>
+        imgData.page === page
+          ? {
+              ...imgData,
+              image: newImageSrc,
+              width,
+              height,
+              rotation: 0,
+              history: [...imgData.history, imgData.image],
+            }
+          : imgData
+      )
+    );
   };
 
   const handleUndo = (page: number) => {
@@ -327,45 +327,67 @@ function App() {
 
   const isBusy = loading || isAutoSmartCropping;
 
+  const renderUploadZoneContent = () => {
+    if (loading) {
+      return (
+        <div className="loading-container">
+          <div className="spinner"></div>
+          <span className="loading-text">{progressText || "正在处理..."}</span>
+        </div>
+      );
+    }
+
+    if (isAutoSmartCropping) {
+      return (
+        <div className="loading-container">
+          <div className="spinner"></div>
+          <span className="loading-text">
+            ✂️ 智能裁剪中... {smartCropProgress.current} / {smartCropProgress.total}
+          </span>
+          <div className="smart-crop-global-progress">
+            <div className="smart-crop-global-progress-fill" style={{ width: `${(smartCropProgress.current / smartCropProgress.total) * 100}%` }} />
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="upload-icon">📁</div>
+        <h3>拖拽或点击上传 PDF 文件</h3>
+        <p>支持多页PDF文件，自动解析每一页</p>
+      </>
+    );
+  };
+
+  const getDownloadButtonText = () => {
+    if (!isBusy) {
+      return "📥 下载 PDF";
+    }
+    if (isAutoSmartCropping) {
+      return "裁剪中...";
+    }
+    return progressText || "处理中...";
+  };
+
   return (
     <div className="app">
       <header className="header">
         <h1>PDF 智能处理工具</h1>
-        <p>上传PDF文件，智能裁剪护照并导出高清图片</p>
       </header>
 
       <div className="upload-area">
-        <div
+        <input ref={fileInputRef} type="file" accept=".pdf" onChange={handleFileChange} className="upload-input" />
+        <button
+          type="button"
           className={`upload-zone ${isDragActive ? "drag-active" : ""} ${isBusy ? "uploading" : ""}`}
           onClick={handleClick}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          <input ref={fileInputRef} type="file" accept=".pdf" onChange={handleFileChange} className="upload-input" />
-          {loading ? (
-            <div className="loading-container">
-              <div className="spinner"></div>
-              <span className="loading-text">{progressText || "正在处理..."}</span>
-            </div>
-          ) : isAutoSmartCropping ? (
-            <div className="loading-container">
-              <div className="spinner"></div>
-              <span className="loading-text">
-                ✂️ 智能裁剪中... {smartCropProgress.current} / {smartCropProgress.total}
-              </span>
-              <div className="smart-crop-global-progress">
-                <div className="smart-crop-global-progress-fill" style={{ width: `${(smartCropProgress.current / smartCropProgress.total) * 100}%` }} />
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="upload-icon">📁</div>
-              <h3>拖拽或点击上传 PDF 文件</h3>
-              <p>支持多页PDF文件，自动解析每一页</p>
-            </>
-          )}
-        </div>
+          {renderUploadZoneContent()}
+        </button>
       </div>
 
       {error && <div className="error-message">⚠️ {error}</div>}
@@ -379,7 +401,7 @@ function App() {
               {isAutoSmartCropping ? `裁剪中 ${smartCropProgress.current}/${smartCropProgress.total}` : "✂️ 智能裁剪全部"}
             </button>
             <button className="download-btn" onClick={handleDownloadPDF} disabled={isBusy}>
-              {isBusy ? (isAutoSmartCropping ? "裁剪中..." : progressText || "处理中...") : "📥 下载 PDF"}
+              {getDownloadButtonText()}
             </button>
             <button className="clear-btn" onClick={handleClear}>
               清除结果

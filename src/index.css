@@ -130,6 +130,6 @@ body::after {
 
 /* 选中文本样式 */
 ::selection {
-  background: rgba(139, 92, 246, 0.4);
-  color: white;
+  background: #6d28d9;
+  color: #ffffff;
 }
