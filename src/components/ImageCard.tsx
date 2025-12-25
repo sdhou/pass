@@ -19,7 +19,7 @@ interface ImageCardProps {
   onUndo: () => void;
 }
 
-function ImageCard({ page, imageSrc, width, height, rotation, canUndo, isSmartCropping: externalSmartCropping, onRotate, onSetRotation, onCrop, onUndo }: ImageCardProps) {
+function ImageCard({ page, imageSrc, width, height, rotation, canUndo, isSmartCropping: externalSmartCropping, onRotate, onSetRotation, onCrop, onUndo }: Readonly<ImageCardProps>) {
   const [crop, setCrop] = useState<Crop>();
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -141,7 +141,7 @@ function ImageCard({ page, imageSrc, width, height, rotation, canUndo, isSmartCr
           <button className={`action-btn smart-crop-btn ${isBusy ? "loading" : ""}`} onClick={handleSmartCrop} disabled={isBusy} title="智能裁剪护照">
             {isSmartCropping ? "⏳ 识别中..." : "✂️ 智能裁剪"}
           </button>
-          <button className={`action-btn undo-btn ${!canUndo ? "disabled" : ""}`} onClick={onUndo} disabled={!canUndo} title="撤销">
+          <button className={`action-btn undo-btn ${canUndo ? "" : "disabled"}`} onClick={onUndo} disabled={!canUndo} title="撤销">
             ⟲ 撤销
           </button>
         </div>
