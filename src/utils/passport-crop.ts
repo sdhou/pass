@@ -48,7 +48,12 @@ const detectPassportBoundary = async (imageBase64: string, apiKey: string): Prom
 
   const prompt = `分析这张扫描图片，识别护照/证件文档的边界。
 
-这是一本打开的护照扫描件，包含左右两页。请找到整个护照文档（包括所有签证页、印章）的最外层边界。
+这是一本打开的护照扫描件，包含左右两页。请找到整个护照文档（包括所有签证页、印章、边框装饰）的最外层边界。
+
+【重要】请确保识别到护照的完整边界：
+- 护照底部通常有装饰性边框或底边，必须完整包含
+- 护照顶部、左右两侧的边框也必须完整包含
+- 宁可多包含一些背景，也绝对不能裁切掉护照本体的任何部分
 
 返回护照四个角在图片中的位置比例（0到1之间的小数）：
 - 0 表示图片最左边/最上边
@@ -59,7 +64,7 @@ const detectPassportBoundary = async (imageBase64: string, apiKey: string): Prom
 
 例如：护照左上角在图片宽度30%、高度10%的位置，则 topLeft 为 [0.30, 0.10]
 
-注意：请确保边界覆盖护照的全部内容，宁可稍微大一点也不要截掉任何护照内容。`;
+【关键提醒】边界坐标必须完全覆盖护照的所有可见部分，包括底边的边框和装饰，稍微扩大范围10%也可以接受。`;
 
   const response = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
     method: "POST",
@@ -241,8 +246,10 @@ const cropByCorners = async (imageBase64: string, corners: PassportCorners): Pro
       const allRotatedX = [rotatedTopLeft[0], rotatedTopRight[0], rotatedBottomLeft[0], rotatedBottomRight[0]];
       const allRotatedY = [rotatedTopLeft[1], rotatedTopRight[1], rotatedBottomLeft[1], rotatedBottomRight[1]];
 
-      const paddingX = img.width * 0.02;
-      const paddingY = img.height * 0.02;
+      // 增加 padding 确保护照边缘完整
+      // 使用更大的安全边距，防止AI检测边界过于紧凑导致裁切护照边框
+      const paddingX = img.width * 0.05; // 水平方向5%
+      const paddingY = img.height * 0.08; // 垂直方向8%，顶部底部更敏感
 
       const cropMinX = Math.max(0, Math.min(...allRotatedX) - paddingX);
       const cropMaxX = Math.min(tempCanvas.width, Math.max(...allRotatedX) + paddingX);
