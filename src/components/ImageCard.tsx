@@ -1,9 +1,51 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Crop, PixelCrop } from "react-image-crop";
 import ReactCrop from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
 import { smartCropPassport } from "../utils/passport-crop";
 import "./ImageCard.css";
+
+/**
+ * 根据旋转角度生成预旋转的图片
+ */
+const generateRotatedImage = (imageSrc: string, rotationDeg: number): Promise<string> => {
+  return new Promise((resolve) => {
+    if (rotationDeg === 0) {
+      resolve(imageSrc);
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      const rotRad = (rotationDeg * Math.PI) / 180;
+      const cos = Math.abs(Math.cos(rotRad));
+      const sin = Math.abs(Math.sin(rotRad));
+
+      // 计算旋转后的画布尺寸
+      const newWidth = img.naturalWidth * cos + img.naturalHeight * sin;
+      const newHeight = img.naturalWidth * sin + img.naturalHeight * cos;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(imageSrc);
+        return;
+      }
+
+      // 移动原点到中心，旋转，然后绘制
+      ctx.translate(newWidth / 2, newHeight / 2);
+      ctx.rotate(rotRad);
+      ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => resolve(imageSrc);
+    img.src = imageSrc;
+  });
+};
 
 interface ImageCardProps {
   page: number;
@@ -26,6 +68,14 @@ function ImageCard({ page, imageSrc, width, height, rotation, canUndo, isSmartCr
   const [isSmartCropping, setIsSmartCropping] = useState(false);
   const [smartCropError, setSmartCropError] = useState<string | null>(null);
 
+  // 预旋转后的图片 - react-image-crop 会使用这个图片
+  const [displaySrc, setDisplaySrc] = useState(imageSrc);
+
+  // 当原始图片或旋转角度变化时，生成预旋转的图片
+  useEffect(() => {
+    generateRotatedImage(imageSrc, rotation).then(setDisplaySrc);
+  }, [imageSrc, rotation]);
+
   const handleSmartCrop = async () => {
     setIsSmartCropping(true);
     setSmartCropError(null);
@@ -42,6 +92,7 @@ function ImageCard({ page, imageSrc, width, height, rotation, canUndo, isSmartCr
   };
 
   // 裁剪完成后立即应用
+  // 因为显示的图片已经是预旋转的，所以直接从 displaySrc 图片上裁剪即可
   const handleCropComplete = useCallback(
     (pixelCrop: PixelCrop) => {
       if (!imgRef.current || !canvasRef.current) return;
@@ -52,9 +103,11 @@ function ImageCard({ page, imageSrc, width, height, rotation, canUndo, isSmartCr
       if (!ctx) return;
 
       const image = imgRef.current;
+      // 显示的图片已经是预旋转的，直接计算缩放比例
       const scaleX = image.naturalWidth / image.width;
       const scaleY = image.naturalHeight / image.height;
 
+      // 直接从预旋转的图片上裁剪
       const srcX = pixelCrop.x * scaleX;
       const srcY = pixelCrop.y * scaleY;
       const srcWidth = pixelCrop.width * scaleX;
@@ -90,7 +143,7 @@ function ImageCard({ page, imageSrc, width, height, rotation, canUndo, isSmartCr
     <div className={`image-card ${isBusy ? "processing" : ""}`}>
       <div className="image-wrapper">
         <ReactCrop crop={crop} onChange={handleCropChange} onComplete={handleComplete}>
-          <img ref={imgRef} src={imageSrc} alt={`第 ${page} 页`} style={{ transform: `rotate(${rotation}deg)` }} />
+          <img ref={imgRef} src={displaySrc} alt={`第 ${page} 页`} />
         </ReactCrop>
         {externalSmartCropping && (
           <div className="processing-overlay">
