@@ -204,6 +204,10 @@ const cropByCorners = async (imageBase64: string, corners: PassportCorners): Pro
         return;
       }
 
+      // 启用高质量图像渲染
+      tempCtx.imageSmoothingEnabled = true;
+      tempCtx.imageSmoothingQuality = "high";
+
       // 填充白色背景
       tempCtx.fillStyle = "#FFFFFF";
       tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
@@ -273,6 +277,10 @@ const cropByCorners = async (imageBase64: string, corners: PassportCorners): Pro
         reject(new Error("无法创建最终 canvas context"));
         return;
       }
+
+      // 启用高质量图像渲染
+      finalCtx.imageSmoothingEnabled = true;
+      finalCtx.imageSmoothingQuality = "high";
 
       finalCtx.drawImage(
         tempCanvas,

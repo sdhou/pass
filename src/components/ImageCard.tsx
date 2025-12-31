@@ -35,6 +35,10 @@ const generateRotatedImage = (imageSrc: string, rotationDeg: number): Promise<st
         return;
       }
 
+      // 启用高质量图像渲染
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+
       // 移动原点到中心，旋转，然后绘制
       ctx.translate(newWidth / 2, newHeight / 2);
       ctx.rotate(rotRad);
@@ -115,6 +119,10 @@ function ImageCard({ page, imageSrc, width, height, rotation, canUndo, isSmartCr
 
       canvas.width = srcWidth;
       canvas.height = srcHeight;
+
+      // 启用高质量图像渲染（必须在设置 canvas 尺寸之后，因为设置尺寸会重置 context 状态）
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
 
       ctx.drawImage(image, srcX, srcY, srcWidth, srcHeight, 0, 0, srcWidth, srcHeight);
 

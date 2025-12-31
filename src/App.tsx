@@ -41,6 +41,10 @@ const getRotatedImage = (src: string, rotation: number): Promise<string> => {
       canvas.width = newWidth;
       canvas.height = newHeight;
 
+      // 启用高质量图像渲染（必须在设置 canvas 尺寸之后，因为设置尺寸会重置 context 状态）
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+
       ctx.translate(newWidth / 2, newHeight / 2);
       ctx.rotate(rad);
       ctx.drawImage(image, -w / 2, -h / 2);
@@ -310,7 +314,7 @@ function App() {
         const x = (pageWidth - w) / 2;
         const y = (pageHeight - h) / 2;
 
-        pdf.addImage(imageData, "PNG", x, y, w, h, undefined, "FAST");
+        pdf.addImage(imageData, "PNG", x, y, w, h, undefined, "NONE");
       }
 
       setProgressText("正在保存文件...");
