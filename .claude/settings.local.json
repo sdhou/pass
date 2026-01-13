@@ -7,7 +7,13 @@
       "Bash(tesseract:*)",
       "Bash(pip install:*)",
       "Bash(python:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(node --version)",
+      "Bash(bun:*)",
+      "Bash(python3:*)",
+      "Bash(for f in img-out/*.png)",
+      "Bash(do file \"$f\")",
+      "Bash(done)"
     ]
   }
 }
