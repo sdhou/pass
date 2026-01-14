@@ -6,6 +6,7 @@ export default function PageCard({
   imageUrl,
   rotationDeg,
   onRotationChange,
+  disabled = false,
 }) {
   const normalized = ((rotationDeg % 360) + 360) % 360
 
@@ -47,12 +48,14 @@ export default function PageCard({
           <Button
             icon={<RotateLeftOutlined />}
             onClick={() => rotate90('left')}
+            disabled={disabled}
           >
             -90°
           </Button>
           <Button
             icon={<RotateRightOutlined />}
             onClick={() => rotate90('right')}
+            disabled={disabled}
           >
             +90°
           </Button>
@@ -61,7 +64,7 @@ export default function PageCard({
         </Space>
 
         <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-          <Button icon={<MinusOutlined />} onClick={() => handleFineNudge(-1)} />
+          <Button icon={<MinusOutlined />} onClick={() => handleFineNudge(-1)} disabled={disabled} />
           <div style={{ flex: 1, margin: '0 12px' }}>
             <Slider
               min={-45}
@@ -73,9 +76,10 @@ export default function PageCard({
               onChange={(value) => {
                 if (typeof value === 'number') onRotationChange(anchor + value)
               }}
+              disabled={disabled}
             />
           </div>
-          <Button icon={<PlusOutlined />} onClick={() => handleFineNudge(1)} />
+          <Button icon={<PlusOutlined />} onClick={() => handleFineNudge(1)} disabled={disabled} />
         </div>
       </Space>
     </Card>
