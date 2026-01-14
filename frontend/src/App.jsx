@@ -22,7 +22,6 @@ function App() {
   }, [pages])
 
   const handleUpload = async (file) => {
-    // Setting pages to empty will trigger useEffect cleanup for old pages
     setPages([])
     setRotations({})
     setProgress(null)
@@ -36,16 +35,16 @@ function App() {
       })
       setPages(newPages)
       setProgress(null)
-      message.success(`Successfully rendered ${newPages.length} pages`)
+      message.success(`已渲染 ${newPages.length} 页`)
     } catch (error) {
       console.error(error)
-      message.error('Failed to parse PDF')
+      message.error('解析 PDF 失败')
     } finally {
       setLoading(false)
       setProgress(null)
     }
 
-    return false // Prevent auto upload
+    return false
   }
 
   const handleRotationChange = (pageNumber, newRotation) => {
@@ -58,7 +57,7 @@ function App() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center', color: 'white' }}>
-        <Title level={3} style={{ color: 'white', margin: 0 }}>PDF Rotator</Title>
+        <Title level={3} style={{ color: 'white', margin: 0 }}>PDF 旋转工具</Title>
       </Header>
       <Content style={{ padding: '24px 50px' }}>
         <div style={{ background: '#fff', padding: 24, minHeight: 280, borderRadius: 8 }}>
@@ -73,10 +72,8 @@ function App() {
             <p className="ant-upload-drag-icon">
               <InboxOutlined />
             </p>
-            <p className="ant-upload-text">Click or drag PDF file to this area to upload</p>
-            <p className="ant-upload-hint">
-              Support for a single PDF file.
-            </p>
+            <p className="ant-upload-text">点击或拖拽 PDF 文件到此处</p>
+            <p className="ant-upload-hint">仅支持单个 PDF 文件</p>
           </Dragger>
 
           {loading && (
@@ -85,14 +82,14 @@ function App() {
                 size="large"
                 tip={
                   progress
-                    ? `Rendering ${progress.pageNumber}/${progress.numPages}...`
-                    : 'Rendering PDF pages...'
+                    ? `正在渲染 ${progress.pageNumber}/${progress.numPages}...`
+                    : '正在渲染 PDF 页面...'
                 }
               />
             </div>
           )}
 
-          {!loading && pages.length === 0 && <Empty description="No PDF loaded" />}
+          {!loading && pages.length === 0 && <Empty description="暂无 PDF" />}
 
           {!loading && pages.length > 0 && (
             <Row gutter={[16, 16]}>
@@ -111,7 +108,7 @@ function App() {
         </div>
       </Content>
       <Footer style={{ textAlign: 'center' }}>
-        PDF Rotator ©{new Date().getFullYear()}
+        PDF 旋转工具 ©{new Date().getFullYear()}
       </Footer>
     </Layout>
   )

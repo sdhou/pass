@@ -1,5 +1,5 @@
 import { Button, Card, Slider, Space } from 'antd'
-import { RotateLeftOutlined, RotateRightOutlined } from '@ant-design/icons'
+import { MinusOutlined, PlusOutlined, RotateLeftOutlined, RotateRightOutlined } from '@ant-design/icons'
 
 export default function PageCard({
   pageNumber,
@@ -17,16 +17,21 @@ export default function PageCard({
     onRotationChange(rotationDeg + delta)
   }
 
+  const handleFineNudge = (delta) => {
+    const newFine = Math.min(Math.max(fineAdjustment + delta, -45), 45)
+    onRotationChange(anchor + newFine)
+  }
+
   return (
     <Card
-      title={`Page ${pageNumber}`}
+      title={`第 ${pageNumber} 页`}
       size="small"
       styles={{ body: { display: 'flex', flexDirection: 'column', gap: 12 } }}
     >
       <div style={{ width: '100%', overflow: 'hidden', display: 'flex', justifyContent: 'center', backgroundColor: '#f0f0f0', borderRadius: 4 }}>
         <img
           src={imageUrl}
-          alt={`Page ${pageNumber}`}
+          alt={`第 ${pageNumber} 页`}
           style={{
             maxWidth: '100%',
             maxHeight: 300,
@@ -52,20 +57,26 @@ export default function PageCard({
             +90°
           </Button>
 
-          <span>Angle: {rotationDeg.toFixed(1)}°</span>
+          <span>角度：{rotationDeg.toFixed(1)}°</span>
         </Space>
 
-        <Slider
-          min={-45}
-          max={45}
-          step={0.5}
-          marks={{ 0: '0°' }}
-          value={fineAdjustment}
-          tooltip={{ formatter: (val) => `${val > 0 ? '+' : ''}${val}°` }}
-          onChange={(value) => {
-            if (typeof value === 'number') onRotationChange(anchor + value)
-          }}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+          <Button icon={<MinusOutlined />} onClick={() => handleFineNudge(-1)} />
+          <div style={{ flex: 1, margin: '0 12px' }}>
+            <Slider
+              min={-45}
+              max={45}
+              step={0.5}
+              marks={{ 0: '0°' }}
+              value={fineAdjustment}
+              tooltip={{ formatter: (val) => `${val > 0 ? '+' : ''}${val}°` }}
+              onChange={(value) => {
+                if (typeof value === 'number') onRotationChange(anchor + value)
+              }}
+            />
+          </div>
+          <Button icon={<PlusOutlined />} onClick={() => handleFineNudge(1)} />
+        </div>
       </Space>
     </Card>
   )
