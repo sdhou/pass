@@ -384,32 +384,41 @@ def _contour_to_quad(contour: np.ndarray) -> Optional[Quad]:
     return Quad(pts=_order_points(box))
 
 
-def _deskew_by_min_area_rect(img: np.ndarray, contour: np.ndarray) -> np.ndarray:
-    # 扫描件通常没有明显透视畸变，主要是整体旋转倾斜；
-    # 这里用“外接矩形长边方向”求旋转角，避免误用 rect[2] 导致 90/180 乱转和拉伸错觉。
-    rect = cv2.minAreaRect(contour)
-    box = cv2.boxPoints(rect).astype(np.float32)
-    tl, tr, br, bl = _order_points(box)
+def _principal_axis_angle_deg(contour: np.ndarray) -> float:
+    # 用 PCA 取轮廓“主轴”方向，避免 minAreaRect 的 0/90 角度歧义。
+    pts = contour.reshape(-1, 2).astype(np.float32)
+    if pts.shape[0] < 10:
+        return 0.0
 
-    v1 = tr - tl
-    v2 = br - tr
-    len1 = float(np.hypot(v1[0], v1[1]))
-    len2 = float(np.hypot(v2[0], v2[1]))
-    v = v1 if len1 >= len2 else v2
+    mean = np.mean(pts, axis=0)
+    pts0 = pts - mean
 
+    cov = np.cov(pts0.T)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+
+    v = eigvecs[:, int(np.argmax(eigvals))]
     ang = float(np.degrees(np.arctan2(v[1], v[0])))
+
     while ang <= -90:
         ang += 180
     while ang > 90:
         ang -= 180
 
-    # 注意：图像坐标系 y 向下，atan2 得到的角度与数学坐标相反。
-    # 为把长边拉平，应按 ang 同号旋转。
-    rot = ang
-    if abs(rot) < 0.15:
+    return ang
+
+
+def _deskew_by_min_area_rect(img: np.ndarray, contour: np.ndarray) -> np.ndarray:
+    # 只做“小角度”去斜；90/180 的方向由后续 `_estimate_orientation` 处理。
+    ang = _principal_axis_angle_deg(contour)
+
+    # 抑制异常角度：主轴不应该给出接近 90° 的旋转（那属于方向问题）
+    if abs(ang) > 8.0:
         return img
 
-    return _rotate_small(img, rot)
+    if abs(ang) < 0.15:
+        return img
+
+    return _rotate_small(img, ang)
 
 
 def _deskew_border_hough(img: np.ndarray) -> float:
@@ -463,19 +472,39 @@ def _deskew_border_hough(img: np.ndarray) -> float:
 
 def _is_dark_cover(img: np.ndarray, mask: np.ndarray) -> bool:
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    s = hsv[:, :, 1]
     v = hsv[:, :, 2]
-    inside = v[mask > 0]
-    if inside.size == 0:
+
+    inside = mask > 0
+    if not np.any(inside):
         return False
 
-    mean_v = float(np.mean(inside))
-    dark_ratio = float(np.mean(inside < 85))
+    inside_v = v[inside]
+    inside_s = s[inside]
 
-    # 双页摊开时封皮也可能面积很大，因此不再使用面积比
-    if mean_v < 90 and dark_ratio > 0.55:
+    mean_v = float(np.mean(inside_v))
+    mean_s = float(np.mean(inside_s))
+
+    dark85 = float(np.mean(inside_v < 85))
+    dark110 = float(np.mean(inside_v < 110))
+
+    # 双页摊开时封皮也可能面积很大，因此不再使用面积比。
+    # 经验：封皮通常“更暗 + 更饱和(深红/深绿/深蓝)”，而内页是浅色低饱和。
+
+    # 强封皮：非常暗
+    if mean_v < 90 and dark85 > 0.45:
         return True
-    if mean_v < 70 and dark_ratio > 0.40:
+    if mean_v < 70 and dark110 > 0.40:
         return True
+
+    # 弱封皮：不至于很暗，但“暗像素占比高 + 颜色饱和”
+    if mean_v < 155 and dark110 > 0.35 and mean_s > 35:
+        return True
+
+    # 灰/黑封皮：饱和度不高但整体偏暗
+    if mean_v < 115 and dark110 > 0.55:
+        return True
+
     return False
 
 
@@ -733,27 +762,116 @@ def _fold_verticalness_score(img: np.ndarray) -> float:
     return v_strength - h_strength
 
 
+def _deskew_fold_hough(img: np.ndarray) -> float:
+    # 用中缝（近似竖直长线）估计小角度倾斜。
+    # 仅用于小角度微调，避免 90° 级别误旋转。
+    img_small = _resize_max(img, 1600)
+    gray = cv2.cvtColor(img_small, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape[:2]
+
+    cx1 = int(w * 0.35)
+    cx2 = int(w * 0.65)
+    roi = gray[:, cx1:cx2]
+
+    s = min(roi.shape[:2])
+    thickness = int(np.clip(s * 0.01, 3, 9))
+    length = int(np.clip(s * 0.40, 140, 420))
+
+    k_v = cv2.getStructuringElement(cv2.MORPH_RECT, (thickness, length))
+    bh = cv2.morphologyEx(roi, cv2.MORPH_BLACKHAT, k_v)
+
+    edges = cv2.Canny(bh, 30, 120)
+    edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+
+    lines = cv2.HoughLinesP(
+        edges,
+        1,
+        np.pi / 180.0,
+        threshold=80,
+        minLineLength=int(h * 0.40),
+        maxLineGap=20,
+    )
+
+    if lines is None:
+        return 0.0
+
+    corrections: list[float] = []
+    for l in lines:
+        x1, y1, x2, y2 = l[0]
+        ang = float(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
+        while ang <= -90:
+            ang += 180
+        while ang > 90:
+            ang -= 180
+
+        if abs(ang) < 78:
+            continue
+
+        base = 90.0 if ang > 0 else -90.0
+        corrections.append(base - ang)
+
+    if len(corrections) < 3:
+        return 0.0
+
+    median = float(np.median(np.array(corrections, dtype=np.float32)))
+    if abs(median) < 0.15 or abs(median) > 6.0:
+        return 0.0
+
+    # 统一约定：返回“应该应用到图像的旋转角”。
+    return -median
+
+
+def _orientation_roi(img: np.ndarray) -> np.ndarray:
+    tb = _text_content_bbox(img)
+    if tb is None:
+        return img
+
+    x1, y1, x2, y2 = tb
+    h, w = img.shape[:2]
+    pad = int(np.clip(min(h, w) * 0.04, 40, 140))
+
+    x1 = max(0, x1 - pad)
+    y1 = max(0, y1 - pad)
+    x2 = min(w, x2 + pad)
+    y2 = min(h, y2 + pad)
+
+    if x2 <= x1 or y2 <= y1:
+        return img
+
+    return img[y1:y2, x1:x2]
+
+
 def _estimate_orientation_no_ocr(img: np.ndarray) -> int:
     # 返回 k: 0/1/2/3 表示顺时针旋转 0/90/180/270
-    best_k = 0
-    best_score = -1e9
+    scores: dict[int, float] = {}
 
     for k in (0, 1, 2, 3):
         cand = _rotate_90(img, k)
-        h, w = cand.shape[:2]
+        roi = _orientation_roi(cand)
 
         score = 0.0
-        # 轻微偏好横画布，但允许中间态是竖画布（后续会裁剪/再横置）
-        score += 1.0 if w >= h else 0.0
+        # 偏好“内容区域”是横向，而不是偏好画布本身横向（避免误把已横置的护照旋转90°）
+        score += 1.0 if roi.shape[1] >= roi.shape[0] else 0.0
 
-        score += 200.0 * _text_horizontalness_score(cand)
-        score += 80.0 * _fold_verticalness_score(cand)
+        text_s = _text_horizontalness_score(roi)
+        fold_s = _fold_verticalness_score(roi)
+
+        # 方向判定优先保证文字可读（水平排版），再用中缝/页码做次要证据。
+        # 之前 fold 权重过大，会把“文字已正向但双页上下摆放”的扫描误旋转 90°。
+        score += 300.0 * text_s
+        score += 10.0 * fold_s
+
         # 页码弱证据（防止极端情况下黑帽失灵）
-        score += 0.3 * min(15.0, _page_number_score_no_ocr(cand))
+        score += 0.3 * min(15.0, _page_number_score_no_ocr(roi))
 
-        if score > best_score:
-            best_score = score
-            best_k = k
+        scores[k] = score
+
+    best_k = max(scores.keys(), key=lambda k: scores[k])
+    best_score = float(scores[best_k])
+
+    # 0° 与 180° 往往打分非常接近；没有强证据时优先 0°，避免把本来正确的页倒转。
+    if 0 in scores and scores[0] >= best_score - 30.0:
+        return 0
 
     return best_k
 
@@ -769,13 +887,13 @@ def _estimate_orientation(img: np.ndarray, ocr: Optional[_OCR]) -> int:
 
     for k in (0, 1, 2, 3):
         cand = _rotate_90(img, k)
-        h, w = cand.shape[:2]
+        roi = _orientation_roi(cand)
 
-        ocr_score = _page_number_score_ocr(cand, ocr)
+        ocr_score = _page_number_score_ocr(roi, ocr)
         best_ocr_score = max(best_ocr_score, ocr_score)
 
         score = 0.0
-        score += 1.0 if w >= h else 0.0
+        score += 1.0 if roi.shape[1] >= roi.shape[0] else 0.0
         score += ocr_score
 
         if score > best_score:
@@ -795,27 +913,24 @@ def _passport_long_axis_angle(img: np.ndarray) -> Optional[float]:
     if contour is None:
         return None
 
-    rect = cv2.minAreaRect(contour)
-    box = cv2.boxPoints(rect).astype(np.float32)
-    tl, tr, br, bl = _order_points(box)
-
-    v1 = tr - tl
-    v2 = br - tr
-    len1 = float(np.hypot(v1[0], v1[1]))
-    len2 = float(np.hypot(v2[0], v2[1]))
-    v = v1 if len1 >= len2 else v2
-
-    ang = float(np.degrees(np.arctan2(v[1], v[0])))
-    while ang <= -90:
-        ang += 180
-    while ang > 90:
-        ang -= 180
-    return ang
+    return _principal_axis_angle_deg(contour)
 
 
 def _ensure_landscape(img: np.ndarray, ocr: Optional[_OCR]) -> np.ndarray:
     # 这里只保证“输出画布横置”。
-    # 护照内部方向由 `_estimate_orientation`（OCR or 黑帽文字方向）决定。
+    # 注意：不要仅凭画布本身 w/h 决定是否旋转。
+    # 很多扫描件是“竖画布 + 上半部横向摊开护照”，此时应先裁剪背景再自然变成横图。
+    tb = _text_content_bbox(img)
+    if tb is not None:
+        x1, y1, x2, y2 = tb
+        cw = x2 - x1
+        ch = y2 - y1
+        # 内容本身偏纵向（比如上下摊开）：不强制横置，否则会把文字旋转成侧向
+        if cw < ch * 0.95:
+            return img
+        if cw >= ch:
+            return img
+
     h, w = img.shape[:2]
     if w >= h:
         return img
@@ -917,53 +1032,190 @@ def _deskew_ocr(img: np.ndarray, ocr: _OCR) -> float:
     return median
 
 
+def _border_background_ratio(img: np.ndarray) -> float:
+    # 估计“图像边缘有多少是真背景”。
+    # 如果边缘几乎没有背景（已裁得很紧），裁剪更容易误切内容，直接跳过。
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    bg, bg_thresh = _sample_background_lab(lab)
+    delta = np.linalg.norm(lab.astype(np.float32) - bg, axis=2)
+
+    h, w = img.shape[:2]
+    s = int(max(10, min(h, w) * 0.05))
+
+    border = np.zeros((h, w), dtype=bool)
+    border[:s, :] = True
+    border[h - s : h, :] = True
+    border[:, :s] = True
+    border[:, w - s : w] = True
+
+    vals = delta[border]
+    if vals.size == 0:
+        return 0.0
+
+    return float(np.mean(vals <= bg_thresh))
+
+
+def _text_content_bbox(img: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+    # 用黑帽（浅底深字）提取“内容密度”，据此估计页面区域。
+    # 目的：解决边缘 mask 只抓到单页或把背景噪声填充进去导致裁剪不准。
+    img_small = _resize_max(img, 1600)
+    gray = cv2.cvtColor(img_small, cv2.COLOR_BGR2GRAY)
+
+    s = min(gray.shape[:2])
+    kx = int(np.clip(s * 0.018, 25, 61))
+    ky = int(np.clip(s * 0.006, 7, 21))
+    if kx % 2 == 0:
+        kx += 1
+    if ky % 2 == 0:
+        ky += 1
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kx, ky))
+    bh = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
+    _, bw = cv2.threshold(bh, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    bw = cv2.morphologyEx(bw, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
+
+    row = (bw > 0).mean(axis=1)
+    col = (bw > 0).mean(axis=0)
+
+    # 自适应阈值：避免空白背景中的少量噪点把 bbox 拉到整幅图
+    thr_row = max(0.006, 0.15 * float(np.percentile(row, 95)))
+    thr_col = max(0.006, 0.12 * float(np.percentile(col, 95)))
+
+    ys = np.where(row > thr_row)[0]
+    xs = np.where(col > thr_col)[0]
+
+    if xs.size == 0 or ys.size == 0:
+        return None
+
+    x1s = int(xs[0])
+    x2s = int(xs[-1]) + 1
+    y1s = int(ys[0])
+    y2s = int(ys[-1]) + 1
+
+    scale_x = img.shape[1] / float(img_small.shape[1])
+    scale_y = img.shape[0] / float(img_small.shape[0])
+
+    x1 = int(round(x1s * scale_x))
+    x2 = int(round(x2s * scale_x))
+    y1 = int(round(y1s * scale_y))
+    y2 = int(round(y2s * scale_y))
+
+    x1 = max(0, min(img.shape[1] - 1, x1))
+    x2 = max(1, min(img.shape[1], x2))
+    y1 = max(0, min(img.shape[0] - 1, y1))
+    y2 = max(1, min(img.shape[0], y2))
+
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    return x1, y1, x2, y2
+
+
 def _safe_crop(img: np.ndarray) -> np.ndarray:
     h, w = img.shape[:2]
+
+    # 边缘背景很少：原图已经很“贴边”，不裁剪更安全
+    if _border_background_ratio(img) < 0.20:
+        return img
+
+    spread_hint = _fold_verticalness_score(img) > 20.0
+    tb_hint = _text_content_bbox(img)
+
+    content_landscape = False
+    if tb_hint is not None:
+        x1t, y1t, x2t, y2t = tb_hint
+        content_landscape = (x2t - x1t) >= (y2t - y1t) * 0.95
+
+    want_landscape = spread_hint or content_landscape
+
+    candidates: list[Tuple[float, Tuple[int, int, int, int]]] = []
+
+    def _try_add_candidate(x1: int, y1: int, x2: int, y2: int) -> None:
+        x1 = max(0, min(w - 1, int(x1)))
+        y1 = max(0, min(h - 1, int(y1)))
+        x2 = max(1, min(w, int(x2)))
+        y2 = max(1, min(h, int(y2)))
+        if x2 <= x1 or y2 <= y1:
+            return
+
+        cw = x2 - x1
+        ch = y2 - y1
+
+        # 预期为横向摊开时，裁剪框不应是明显竖向；否则很容易只截到单页。
+        if want_landscape and (cw < ch * 1.02):
+            return
+
+        crop_area = float(cw * ch)
+        full_area = float(h * w)
+        # 太小会误切内容，太大几乎无意义
+        if crop_area < full_area * 0.35 or crop_area > full_area * 0.97:
+            return
+
+        candidates.append((crop_area, (x1, y1, x2, y2)))
+
+    # 1) 先尝试用护照外轮廓 mask 裁剪（对“下方大量空白背景”最有效）
     mask = _passport_mask(img)
-
-    # 保守策略：轻微膨胀护照区域，宁可多留背景也不切到内容
-    dilate_k = int(np.clip(min(h, w) * 0.015, 9, 41))
-    if dilate_k % 2 == 0:
-        dilate_k += 1
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_k, dilate_k))
-    mask = cv2.dilate(mask, kernel, iterations=1)
-
     contour = _largest_contour(mask)
-    if contour is None:
-        return img
+    if contour is not None:
+        contour_area = float(cv2.contourArea(contour))
+        area_ratio = contour_area / float(h * w)
+        if 0.08 <= area_ratio <= 0.98:
+            rect = cv2.minAreaRect(contour)
+            (rw, rh) = rect[1]
+            rect_area = float(rw * rh) if (rw > 1 and rh > 1) else 0.0
+            if rect_area > 0:
+                rectangularity = contour_area / rect_area
+                if rectangularity >= 0.18:
+                    x, y, cw, ch = cv2.boundingRect(cv2.convexHull(contour))
 
-    contour_area = float(cv2.contourArea(contour))
-    area_ratio = contour_area / float(h * w)
-    # 过小/过大都更像 mask 失真：直接不裁剪
-    if area_ratio < 0.12 or area_ratio > 0.995:
-        return img
+                    img_landscape = w >= h
+                    bbox_landscape = cw >= ch
 
-    rect = cv2.minAreaRect(contour)
-    (rw, rh) = rect[1]
-    rect_area = float(rw * rh) if (rw > 1 and rh > 1) else 0.0
-    if rect_area <= 0:
-        return img
+                    # bbox 明显竖向时：
+                    # - 有中缝证据（spread_hint）时，扩展成双页
+                    # - 没有中缝证据时，不信任该 bbox（避免只截到单页）
+                    if (
+                        img_landscape
+                        and (not bbox_landscape)
+                        and (ch / float(cw + 1) > 1.15)
+                    ):
+                        if spread_hint:
+                            gap = int(np.clip(w * 0.02, 20, 80))
+                            bbox_cx = x + cw / 2.0
 
-    rectangularity = contour_area / rect_area
-    if rectangularity < 0.25:
-        return img
+                            if bbox_cx >= (w / 2.0):
+                                ex1 = max(0, x - cw - gap)
+                                ex2 = min(w, x + cw + gap)
+                            else:
+                                ex1 = max(0, x - gap)
+                                ex2 = min(w, x + 2 * cw + gap)
 
-    x, y, cw, ch = cv2.boundingRect(cv2.convexHull(contour))
+                            x = ex1
+                            cw = max(1, ex2 - ex1)
+                        else:
+                            x = -1
 
-    margin = int(max(25, min(h, w) * 0.03))
-    x1 = max(0, x - margin)
-    y1 = max(0, y - margin)
-    x2 = min(w, x + cw + margin)
-    y2 = min(h, y + ch + margin)
+                    if x >= 0:
+                        pad = int(np.clip(min(h, w) * 0.03, 30, 120))
+                        _try_add_candidate(x - pad, y - pad, x + cw + pad, y + ch + pad)
 
-    if x1 == 0 and y1 == 0 and x2 == w and y2 == h:
-        return img
+    # 2) 再尝试用“内容密度”估计裁剪框（对 mask 失真时更稳）
+    tb = tb_hint
+    if tb is not None:
+        x1t, y1t, x2t, y2t = tb
 
-    crop_area = float((x2 - x1) * (y2 - y1))
-    if crop_area > float(h * w) * 0.985:
-        return img
+        max_margin = max(x1t, y1t, w - x2t, h - y2t)
+        tight_thr = int(max(20, min(h, w) * 0.06))
+        if max_margin > tight_thr:
+            pad = int(np.clip(min(h, w) * 0.04, 40, 140))
+            _try_add_candidate(x1t - pad, y1t - pad, x2t + pad, y2t + pad)
 
-    return img[y1:y2, x1:x2]
+    if candidates:
+        _, (x1, y1, x2, y2) = min(candidates, key=lambda t: t[0])
+        return img[y1:y2, x1:x2]
+
+    # fallback：完全不裁
+    return img
 
 
 def process_image(
@@ -995,13 +1247,18 @@ def process_image(
     if debug_dir:
         cv2.imwrite(os.path.join(debug_dir, f"{stem}_03_oriented.png"), oriented)
 
-    # 小角度去斜：优先用页码数字（更贴合需求），否则用护照外边缘
+    # 小角度去斜：优先用页码数字（更贴合需求），否则用护照外边缘；
+    # 若外边缘线段不明显，再用“中缝竖线”做兜底。
     if ocr is not None:
         skew = _deskew_page_number_ocr(oriented, ocr)
         if abs(skew) < 0.15:
             skew = _deskew_border_hough(oriented)
+        if abs(skew) < 0.15 and _fold_verticalness_score(oriented) > 20.0:
+            skew = _deskew_fold_hough(oriented)
     else:
         skew = _deskew_border_hough(oriented)
+        if abs(skew) < 0.15 and _fold_verticalness_score(oriented) > 20.0:
+            skew = _deskew_fold_hough(oriented)
 
     deskewed = _rotate_small(oriented, skew) if abs(skew) > 0 else oriented
 
