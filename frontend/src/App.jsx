@@ -1,219 +1,186 @@
-import { useState, useEffect } from 'react'
-import { Upload, message, Layout, Row, Col, Typography, Empty, Spin, Input, Select, Button, Space } from 'antd'
+import { useState } from 'react'
+import { Layout, Upload, message, Button, List, Card, Typography, Spin, Breadcrumb, Tag, Space } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
-import PageCard from './components/PageCard'
-import { renderPdfFileToPageImages, revokePdfPageImageUrls } from './lib/pdf'
-import { rotatedImageUrlToPngDataUrl, callDashscopeQwenImageEdit } from './lib/dashscopeImageEdit'
+import ReviewCanvas from './components/ReviewCanvas'
+import { api } from './lib/api'
 import './App.css'
 
 const { Header, Content, Footer } = Layout
 const { Dragger } = Upload
-const { Title } = Typography
+const { Title, Text } = Typography
 
 function App() {
+  const [runId, setRunId] = useState(null)
   const [pages, setPages] = useState([])
   const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState(null)
-  const [rotations, setRotations] = useState({})
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('dashscope_api_key') || '')
-  const [region, setRegion] = useState('cn')
-  const [processing, setProcessing] = useState(false)
-  const [processingStatus, setProcessingStatus] = useState('')
-  const [processedUrls, setProcessedUrls] = useState({})
-
-  useEffect(() => {
-    return () => {
-      revokePdfPageImageUrls(pages)
-    }
-  }, [pages])
-
-  useEffect(() => {
-    localStorage.setItem('dashscope_api_key', apiKey)
-  }, [apiKey])
+  const [view, setView] = useState('upload')
+  const [selectedPage, setSelectedPage] = useState(null)
+  const [pageCandidates, setPageCandidates] = useState([])
 
   const handleUpload = async (file) => {
-    setPages([])
-    setRotations({})
-    setProcessedUrls({})
-    setProgress(null)
     setLoading(true)
-
     try {
-      const newPages = await renderPdfFileToPageImages(file, {
-        onProgress: ({ pageNumber, numPages }) => {
-          setProgress({ pageNumber, numPages })
-        },
-      })
-      setPages(newPages)
-      setProgress(null)
-      message.success(`已渲染 ${newPages.length} 页`)
+      const data = await api.uploadPdf(file)
+      setRunId(data.run_id)
+      message.success('上传成功')
+      await loadPages(data.run_id)
     } catch (error) {
       console.error(error)
-      message.error('解析 PDF 失败')
-    } finally {
+      message.error('上传失败')
       setLoading(false)
-      setProgress(null)
     }
-
     return false
   }
 
-  const handleRotationChange = (pageNumber, newRotation) => {
-    setRotations(prev => ({
-      ...prev,
-      [pageNumber]: newRotation
-    }))
-  }
-
-  const handleProcess = async () => {
-    if (!apiKey) {
-      message.error('请输入 DashScope API Key')
-      return
-    }
-
-    setProcessing(true)
-    setProcessedUrls({})
-    
+  const loadPages = async (id) => {
+    setLoading(true)
     try {
-      for (let i = 0; i < pages.length; i++) {
-        const page = pages[i]
-        const num = page.pageNumber
-        setProcessingStatus(`正在处理第 ${num}/${pages.length} 页...`)
-        
-        try {
-          const rotation = rotations[num] || 0
-          
-          const imageDataUrl = await rotatedImageUrlToPngDataUrl(page.url, rotation)
-          
-          const newImageUrl = await callDashscopeQwenImageEdit({
-            apiKey,
-            imageDataUrl,
-            prompt: '用红线框出整本护照 护照可能是歪斜的',
-            region,
-          })
-          
-          setProcessedUrls(prev => ({
-            ...prev,
-            [num]: newImageUrl
-          }))
-          
-          setRotations(prev => ({
-            ...prev,
-            [num]: 0
-          }))
-          
-        } catch (err) {
-          console.error(`Page ${num} error:`, err)
-          const msg = err?.message || '未知错误'
-          if (msg === 'Failed to fetch') {
-            message.error('无法连接本地代理服务，请先启动代理')
-          } else {
-            message.error(`第 ${num} 页处理失败: ${msg}`)
-          }
-        }
-      }
-      message.success('处理完成')
+      const data = await api.getPages(id)
+      const pageList = Array.isArray(data) ? data : (data.pages || [])
+      setPages(pageList)
+      setView('list')
     } catch (error) {
       console.error(error)
-      message.error('处理过程中断')
+      message.error('加载页面失败')
     } finally {
-      setProcessing(false)
-      setProcessingStatus('')
+      setLoading(false)
     }
+  }
+
+  const handleReview = async (page) => {
+    setLoading(true)
+    setSelectedPage(page)
+    try {
+      const data = await api.getPageViz(runId, page.page_number)
+      setPageCandidates(data.candidates || [])
+      setView('review')
+    } catch (error) {
+      console.error(error)
+      message.error('加载页面详情失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSaveLabel = async (points) => {
+    try {
+      await api.submitLabel(runId, selectedPage.page_number, points)
+      message.success('标注已保存')
+      setView('list')
+      loadPages(runId)
+    } catch (error) {
+      console.error(error)
+      message.error('保存标注失败')
+    }
+  }
+
+  const handleBackToList = () => {
+    setView('list')
+    setSelectedPage(null)
+    setPageCandidates([])
   }
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Header style={{ display: 'flex', alignItems: 'center', color: 'white' }}>
-        <Title level={3} style={{ color: 'white', margin: 0 }}>PDF 旋转工具</Title>
+      <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Title level={4} style={{ color: 'white', margin: 0 }}>护照边界审核</Title>
+        {runId && <span style={{ color: 'rgba(255,255,255,0.65)' }}>任务 ID: {runId}</span>}
       </Header>
+      
       <Content style={{ padding: '24px 50px' }}>
         <div style={{ background: '#fff', padding: 24, minHeight: 280, borderRadius: 8 }}>
           
-          <Dragger
-            accept=".pdf"
-            beforeUpload={handleUpload}
-            showUploadList={false}
-            disabled={loading || processing}
-            style={{ marginBottom: 24 }}
-          >
-            <p className="ant-upload-drag-icon">
-              <InboxOutlined />
-            </p>
-            <p className="ant-upload-text">点击或拖拽 PDF 文件到此处</p>
-            <p className="ant-upload-hint">仅支持单个 PDF 文件</p>
-          </Dragger>
-
-          {pages.length > 0 && (
-            <div style={{ marginBottom: 24, padding: '16px', border: '1px solid #f0f0f0', borderRadius: '8px' }}>
-              <Space wrap>
-                <Input.Password
-                  placeholder="请输入 DashScope API Key"
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                  style={{ width: 200 }}
-                  disabled={processing}
-                />
-                <Select
-                  value={region}
-                  onChange={setRegion}
-                  options={[
-                    { value: 'cn', label: '国内 (CN)' },
-                    { value: 'intl', label: '国际 (Intl)' },
-                  ]}
-                  disabled={processing}
-                  style={{ width: 120 }}
-                />
-                <Button 
-                  type="primary" 
-                  onClick={handleProcess} 
-                  loading={processing}
-                  disabled={!apiKey}
-                >
-                  {processing ? '处理中...' : '处理 (红线框选护照)'}
-                </Button>
-                {processingStatus && <span>{processingStatus}</span>}
-              </Space>
+          {view === 'upload' && (
+            <div style={{ maxWidth: 600, margin: '50px auto' }}>
+              <Title level={3} style={{ textAlign: 'center', marginBottom: 32 }}>上传护照 PDF</Title>
+              <Dragger
+                accept=".pdf"
+                beforeUpload={handleUpload}
+                showUploadList={false}
+                disabled={loading}
+                height={200}
+              >
+                <p className="ant-upload-drag-icon">
+                  <InboxOutlined />
+                </p>
+                <p className="ant-upload-text">点击或拖拽 PDF 文件到此区域上传</p>
+              </Dragger>
+              {loading && <div style={{ textAlign: 'center', marginTop: 24 }}><Spin size="large" /></div>}
             </div>
           )}
 
-          {loading && (
-            <div style={{ textAlign: 'center', margin: '50px 0' }}>
-              <Spin
-                size="large"
-                tip={
-                  progress
-                    ? `正在渲染 ${progress.pageNumber}/${progress.numPages}...`
-                    : '正在渲染 PDF 页面...'
-                }
+          {view === 'list' && (
+            <div>
+              <Breadcrumb style={{ marginBottom: 16 }} items={[{ title: '任务 ' + runId }, { title: '页面列表' }]} />
+              
+              {loading && pages.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 50 }}><Spin /></div>
+              ) : (
+                <List
+                  grid={{ gutter: 16, xs: 1, sm: 2, md: 2, lg: 2, xl: 2, xxl: 2 }}
+                  dataSource={pages}
+                  renderItem={(page) => (
+                    <List.Item>
+                      <Card
+                        hoverable
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => handleReview(page)}
+                        cover={
+                           <div style={{ height: 400, overflow: 'hidden', background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                             <img 
+                               alt={`第 ${page.page_number} 页`} 
+                               src={api.getPageImageUrl(runId, page.page_number)} 
+                               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                               loading="lazy"
+                             />
+                           </div>
+                        }
+                      >
+                        <Card.Meta 
+                          title={`第 ${page.page_number} 页`} 
+                          description={
+                            <Space>
+                              {page.status === 'labelled' ? <Tag color="success">已标注</Tag> : <Tag color="warning">待处理</Tag>}
+                            </Space>
+                          } 
+                        />
+                      </Card>
+                    </List.Item>
+                  )}
+                />
+              )}
+            </div>
+          )}
+
+          {view === 'review' && selectedPage && (
+            <div>
+              <Breadcrumb style={{ marginBottom: 16 }} items={[
+                { title: <a onClick={handleBackToList}>{'任务 ' + runId}</a> },
+                { title: `第 ${selectedPage.page_number} 页` }
+              ]} />
+              
+              <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                 <Title level={4}>审核并标注第 {selectedPage.page_number} 页</Title>
+                 <Text type="secondary">审核候选框（绿色/蓝色）或点击 4 个点进行手动标注（红色）。</Text>
+              </div>
+
+              <ReviewCanvas 
+                imageUrl={api.getPageImageUrl(runId, selectedPage.page_number)}
+                candidates={pageCandidates}
+                onSave={handleSaveLabel}
+                onCancel={handleBackToList}
               />
             </div>
           )}
 
-          {!loading && pages.length === 0 && <Empty description="暂无 PDF" />}
-
-          {!loading && pages.length > 0 && (
-            <Row gutter={[16, 16]}>
-              {pages.map((page) => (
-                <Col xs={24} md={12} key={page.pageNumber}>
-                    <PageCard
-                      pageNumber={page.pageNumber}
-                      imageUrl={processedUrls[page.pageNumber] || page.url}
-                      rotationDeg={rotations[page.pageNumber] || 0}
-                      onRotationChange={(deg) => handleRotationChange(page.pageNumber, deg)}
-                      disabled={processing}
-                    />
-                </Col>
-              ))}
-            </Row>
-          )}
         </div>
       </Content>
       <Footer style={{ textAlign: 'center' }}>
-        PDF 旋转工具 ©{new Date().getFullYear()}
+        护照边界审核 ©{new Date().getFullYear()}
       </Footer>
     </Layout>
   )
 }
 
 export default App
+

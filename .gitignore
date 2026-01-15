@@ -1,4 +1,11 @@
 pdf/
 img/
 img-out/
+img-out-mask/
+backend/data/
+jobs/runs/
+frontend/node_modules/
+frontend/dist/
 __pycache__
+.env
+.DS_Store
